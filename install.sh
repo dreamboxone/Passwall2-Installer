@@ -18,6 +18,48 @@ die()  { printf "${RED}[x]${NC} %s\n" "$1"; exit 1; }
 
 SF_BASE="https://master.dl.sourceforge.net/project/openwrt-passwall-build"
 
+# SourceForge mirrors, tried in order. The first one that works for the
+# signing key is also used for the package feeds (SF_BASE gets updated).
+SF_MIRRORS="
+https://master.dl.sourceforge.net/project/openwrt-passwall-build
+https://downloads.sourceforge.net/project/openwrt-passwall-build
+https://netix.dl.sourceforge.net/project/openwrt-passwall-build
+https://phoenixnap.dl.sourceforge.net/project/openwrt-passwall-build
+"
+
+# dl <output-file> <url> : download with a 15s timeout, 2 tries, never hangs
+dl() {
+    wget -T 15 -t 2 -qO "$1" "$2" 2>/dev/null
+}
+
+# valid_key <file> : non-empty and not an HTML error page
+valid_key() {
+    [ -s "$1" ] && ! head -c 200 "$1" | grep -qi "<html\|<!doctype"
+}
+
+# fetch_key <keyname> <output-file> : try every mirror until one works,
+# then lock SF_BASE to that mirror so the feeds use it too.
+fetch_key() {
+    keyname="$1"; out="$2"
+    for base in $SF_MIRRORS; do
+        msg "Trying mirror: $base"
+        if dl "$out" "$base/$keyname" && valid_key "$out"; then
+            SF_BASE="$base"
+            msg "Mirror OK - key downloaded. Using this mirror for feeds too."
+            return 0
+        fi
+        warn "Mirror failed or timed out, trying the next one..."
+        rm -f "$out"
+    done
+    # Last resort: the sourceforge.net redirect URL (picks a mirror by itself)
+    msg "Trying SourceForge auto-redirect URL..."
+    if dl "$out" "https://sourceforge.net/projects/openwrt-passwall-build/files/$keyname/download" && valid_key "$out"; then
+        warn "Key downloaded via redirect URL. Feeds will use master.dl - if 'opkg update' fails later, your network may be blocking SourceForge mirrors."
+        return 0
+    fi
+    return 1
+}
+
 # ---------- 0. Sanity checks ----------
 [ "$(id -u)" = "0" ] || die "Please run this script as root."
 [ -f /etc/openwrt_release ] || die "This system does not look like OpenWrt."
@@ -44,7 +86,7 @@ msg "Detected OpenWrt $DISTRIB_RELEASE  |  Arch: $arch  |  Package manager: $PKG
 
 # ---------- 2. Check internet connectivity ----------
 msg "Checking internet connectivity..."
-if ! wget -q --spider https://master.dl.sourceforge.net 2>/dev/null && \
+if ! wget -T 8 -t 1 -q --spider https://sourceforge.net 2>/dev/null && \
    ! ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then
     die "No internet connection. Please check your WAN connection first."
 fi
@@ -84,10 +126,11 @@ install_via_opkg() {
     opkg install ca-certificates ca-bundle 2>/dev/null || opkg install ca-certificates || true
     opkg install wget-ssl 2>/dev/null || opkg install wget || true
 
-    # --- repository signing key ---
+    # --- repository signing key (ipk.pub for opkg-based builds) ---
     msg "Adding Passwall repository signing key (opkg)..."
     rm -f /tmp/passwall.pub
-    wget -qO /tmp/passwall.pub "$SF_BASE/ipk.pub" || die "Failed to download the repository key."
+    fetch_key "ipk.pub" /tmp/passwall.pub || \
+        die "Failed to download the repository key from all mirrors. Your network may be blocking SourceForge."
     opkg-key add /tmp/passwall.pub || die "Failed to add the repository key."
     rm -f /tmp/passwall.pub
 
@@ -119,11 +162,11 @@ install_via_apk() {
         warn "SNAPSHOT build detected - using the snapshots feed."
     fi
 
-    # --- repository signing key -> /etc/apk/keys/*.pem ---
+    # --- repository signing key (apk.pub) -> /etc/apk/keys/*.pem ---
     msg "Adding Passwall repository signing key (apk)..."
     mkdir -p /etc/apk/keys
-    wget -qO /etc/apk/keys/openwrt-passwall-build.pem "$SF_BASE/apk.pub" || \
-        die "Failed to download the apk repository key."
+    fetch_key "apk.pub" /etc/apk/keys/openwrt-passwall-build.pem || \
+        die "Failed to download the apk repository key from all mirrors. Your network may be blocking SourceForge."
 
     # --- feeds -> /etc/apk/repositories.d/customfeeds.list (no duplicates) ---
     FEEDS_FILE="/etc/apk/repositories.d/customfeeds.list"
