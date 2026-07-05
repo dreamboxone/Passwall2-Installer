@@ -4,7 +4,10 @@
 
 ---
 
-One-line installer for [Passwall2](https://github.com/Openwrt-Passwall/openwrt-passwall2) on **OpenWrt 24.10.x and older** (opkg-based builds).
+One-line installer for [Passwall2](https://github.com/Openwrt-Passwall/openwrt-passwall2) on OpenWrt. **Auto-detects your package manager** and uses the right method:
+
+- **opkg** → OpenWrt 21.02 – 24.10.x
+- **apk** → OpenWrt 25.12+ and SNAPSHOT builds
 
 ## Quick Install (one line)
 
@@ -22,16 +25,25 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/dreamboxone/Passwall2-Inst
 
 ## What the script does
 
-1. Checks that you are root, on OpenWrt, on an opkg-based release (not SNAPSHOT / apk-based)
-2. Runs `opkg update`
-3. Safely replaces `dnsmasq` with `dnsmasq-full` (downloads first, removes second — the router is never left without DNS)
-4. Installs firewall kernel modules:
-   - `kmod-nft-tproxy`, `kmod-nft-socket` on OpenWrt 22.03+ (nftables / fw4)
-   - iptables tproxy modules on 21.02 and older (fw3)
-5. Installs `wget-ssl` and CA certificates
-6. Adds the official Passwall build repository signing key
-7. Adds the `passwall_packages` and `passwall2` feeds for your exact release and CPU architecture (skips duplicates)
-8. Runs `opkg update` again and installs `luci-app-passwall2`
+1. Detects your OpenWrt version, CPU architecture, and package manager (`opkg` or `apk`)
+2. Checks internet connectivity
+
+**On opkg-based builds (21.02 – 24.10.x):**
+- Safely replaces `dnsmasq` with `dnsmasq-full` (downloads first, removes second — the router is never left without DNS)
+- Installs firewall kernel modules: `kmod-nft-tproxy` + `kmod-nft-socket` on 22.03+ (fw4), or iptables tproxy modules on 21.02 (fw3)
+- Installs `wget-ssl` and CA certificates
+- Adds the repository signing key with `opkg-key`
+- Adds the `passwall_packages` and `passwall2` feeds to `/etc/opkg/customfeeds.conf` (skips duplicates)
+- Installs `luci-app-passwall2` with `opkg`
+
+**On apk-based builds (25.12+ / SNAPSHOT):**
+- Adds the repository signing key as a `.pem` file in `/etc/apk/keys/`
+- Adds the `packages.adb` feed URLs to `/etc/apk/repositories.d/customfeeds.list` — automatically using the `snapshots` feed on SNAPSHOT builds and the `releases` feed on stable builds (skips duplicates)
+- Replaces `dnsmasq` with `dnsmasq-full`
+- Installs `kmod-nft-tproxy` + `kmod-nft-socket` and CA certificates
+- Installs `luci-app-passwall2` with `apk`
+
+Finally, it restarts the LuCI backend (`rpcd`) so the new menu shows up.
 
 ## After installation
 
@@ -41,14 +53,9 @@ Open LuCI in your browser (usually `http://192.168.1.1`) and go to:
 
 ## Requirements
 
-- OpenWrt **21.02 – 24.10.x** stable release (opkg-based)
+- OpenWrt **21.02 or newer** (both opkg-based and apk-based builds are supported, including SNAPSHOT)
 - Working internet connection on the router (WAN)
 - Enough free space in overlay (~15–30 MB depending on the cores you install)
-
-## Not supported
-
-- SNAPSHOT builds
-- OpenWrt builds newer than 24.10 that use `apk` instead of `opkg`
 
 ## Troubleshooting
 
