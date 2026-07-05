@@ -23,7 +23,7 @@ SF_BASE="https://master.dl.sourceforge.net/project/openwrt-passwall-build"
 # GitHub is reachable whenever the installer itself could be downloaded.
 GH_KEY_BASE="https://raw.githubusercontent.com/dreamboxone/Passwall2-Installer/main"
 
-# SourceForge mirrors for the package feeds, tried in order.
+# Fallback sources for the key - used ONLY if the GitHub download fails.
 SF_MIRRORS="
 https://master.dl.sourceforge.net/project/openwrt-passwall-build
 https://downloads.sourceforge.net/project/openwrt-passwall-build
@@ -42,17 +42,19 @@ valid_key() {
 }
 
 # fetch_key <keyname> <output-file> :
-# 1) GitHub (this repo) - primary, 2) SourceForge mirrors, 3) SF redirect URL
+# 1) GitHub (this repo) - if it works, we are done, nothing else is tried.
+# 2) Only if GitHub fails: SourceForge mirrors, then the SF redirect URL.
 fetch_key() {
     keyname="$1"; out="$2"
 
     msg "Downloading key from GitHub: $GH_KEY_BASE/$keyname"
+    rm -f "$out"
     if dl "$out" "$GH_KEY_BASE/$keyname" && valid_key "$out"; then
         msg "Key downloaded from GitHub."
         return 0
     fi
-    warn "GitHub failed, falling back to SourceForge mirrors..."
 
+    warn "GitHub download failed - falling back to SourceForge mirrors..."
     for base in $SF_MIRRORS; do
         msg "Trying mirror: $base"
         rm -f "$out"
@@ -70,27 +72,6 @@ fetch_key() {
     fi
     rm -f "$out"
     return 1
-}
-
-# pick_feed_mirror <probe-path> : find a SourceForge mirror that actually
-# serves the package feeds and lock SF_BASE to it. The key can come from
-# GitHub, but the packages themselves only exist on SourceForge.
-pick_feed_mirror() {
-    probe="$1"
-    for base in $SF_MIRRORS; do
-        msg "Testing feed mirror: $base"
-        if dl /tmp/pw_probe "$base/$probe" && [ -s /tmp/pw_probe ]; then
-            SF_BASE="$base"
-            rm -f /tmp/pw_probe
-            msg "Feed mirror OK: $base"
-            return 0
-        fi
-    done
-    rm -f /tmp/pw_probe
-    warn "No SourceForge feed mirror is reachable from this network."
-    warn "The feeds will be added with master.dl anyway, but 'update' may fail."
-    warn "If it fails, your network is blocking SourceForge - try a VPN on the router or a different DNS."
-    return 0
 }
 
 # ---------- 0. Sanity checks ----------
@@ -163,12 +144,9 @@ install_via_opkg() {
     msg "Adding Passwall repository signing key (opkg)..."
     rm -f /tmp/passwall.pub
     fetch_key "ipk.pub" /tmp/passwall.pub || \
-        die "Failed to download the repository key from all mirrors. Your network may be blocking SourceForge."
+        die "Failed to download the repository key (ipk.pub) from GitHub and all fallback mirrors. Check your internet connection."
     opkg-key add /tmp/passwall.pub || die "Failed to add the repository key."
     rm -f /tmp/passwall.pub
-
-    # --- find a reachable SourceForge mirror for the feeds ---
-    pick_feed_mirror "releases/packages-$release/$arch/passwall2/Packages.gz"
 
     # --- feeds (no duplicates) ---
     FEEDS_FILE="/etc/opkg/customfeeds.conf"
@@ -202,14 +180,7 @@ install_via_apk() {
     msg "Adding Passwall repository signing key (apk)..."
     mkdir -p /etc/apk/keys
     fetch_key "apk.pub" /etc/apk/keys/openwrt-passwall-build.pem || \
-        die "Failed to download the apk repository key from all mirrors. Your network may be blocking SourceForge."
-
-    # --- find a reachable SourceForge mirror for the feeds ---
-    if [ "$IS_SNAPSHOT" = "1" ]; then
-        pick_feed_mirror "snapshots/packages/$arch/passwall2/packages.adb"
-    else
-        pick_feed_mirror "releases/packages-$release/$arch/passwall2/packages.adb"
-    fi
+        die "Failed to download the repository key (apk.pub) from GitHub and all fallback mirrors. Check your internet connection."
 
     # --- feeds -> /etc/apk/repositories.d/customfeeds.list (no duplicates) ---
     FEEDS_FILE="/etc/apk/repositories.d/customfeeds.list"
