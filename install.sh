@@ -2,9 +2,9 @@
 # =====================================================
 #  Passwall2 One-Line Installer for OpenWrt
 #  Supports: OpenWrt 24.10.x and older (opkg-based)
-#  Repo:     https://github.com/dreamboxone/passwall2-installer
+#  Repo:     https://github.com/dreamboxone/Passwall2-Installer
 #  Usage:
-#    sh -c "$(wget -qO- https://raw.githubusercontent.com/dreamboxone/passwall2-installer/main/install.sh)"
+#    sh -c "$(wget -qO- https://raw.githubusercontent.com/dreamboxone/Passwall2-Installer/main/install.sh)"
 # =====================================================
 
 set -e
